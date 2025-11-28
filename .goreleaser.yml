@@ -21,7 +21,10 @@ builds:
     main: ./main.go
 
 archives:
-  - format: tar.gz
+  - id: sshbuddy
+    builds:
+      - sshbuddy
+    format: tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
