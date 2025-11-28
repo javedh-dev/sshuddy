@@ -226,22 +226,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case "left":
-				// Move to left column (move up by listHeight items)
-				const listHeight = 5
+				// Move left in row-wise layout (decrement by 1 if on odd index)
 				currentIdx := m.list.Index()
-				if currentIdx >= listHeight {
-					newIdx := currentIdx - listHeight
-					m.list.Select(newIdx)
+				if currentIdx%2 == 1 { // If on right column
+					m.list.Select(currentIdx - 1)
 				}
 				return m, nil
 			case "right":
-				// Move to right column (move down by listHeight items)
-				const listHeight = 5
+				// Move right in row-wise layout (increment by 1 if on even index)
 				currentIdx := m.list.Index()
 				totalItems := len(m.list.Items())
-				newIdx := currentIdx + listHeight
-				if newIdx < totalItems {
-					m.list.Select(newIdx)
+				if currentIdx%2 == 0 && currentIdx+1 < totalItems { // If on left column
+					m.list.Select(currentIdx + 1)
 				}
 				return m, nil
 			case "e":
@@ -250,6 +246,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateForm
 					m.form = NewFormModelWithHost(selectedItem.host)
 					m.editingIndex = m.list.Index()
+					return m, m.form.Init()
+				}
+			case "c":
+				// Duplicate selected host
+				if selectedItem, ok := m.list.SelectedItem().(item); ok {
+					m.state = stateForm
+					duplicatedHost := selectedItem.host
+					// Append " (copy)" to the alias to avoid duplicates
+					duplicatedHost.Alias = duplicatedHost.Alias + " (copy)"
+					m.form = NewFormModelWithHost(duplicatedHost)
+					m.editingIndex = -1 // -1 means adding new (not editing)
 					return m, m.form.Init()
 				}
 			case "d", "delete":
@@ -360,11 +367,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	// Fixed width box for 2-column layout
-	const boxWidth = 82
-	const minHeight = 27
+	const boxWidth = 80
+	const minHeight = 26
 	
 	// Check if terminal is too small
-	if m.width < boxWidth || m.height < minHeight {
+	if m.width < boxWidth+4 || m.height < minHeight {
 		errorMsg := lipgloss.NewStyle().
 			Foreground(errorColor).
 			Bold(true).
@@ -374,7 +381,7 @@ func (m Model) View() string {
 		instruction := lipgloss.NewStyle().
 			Foreground(mutedColor).
 			Align(lipgloss.Center).
-			Render(fmt.Sprintf("Please resize your terminal to at least %dx%d", boxWidth, minHeight))
+			Render(fmt.Sprintf("Please resize your terminal to at least %dx%d", boxWidth+4, minHeight))
 		
 		currentSize := lipgloss.NewStyle().
 			Foreground(dimColor).
@@ -444,6 +451,7 @@ func (m Model) View() string {
 		keyStyle.Render("↵") + descStyle.Render(":connect "),
 		keyStyle.Render("n") + descStyle.Render(":new "),
 		keyStyle.Render("e") + descStyle.Render(":edit "),
+		keyStyle.Render("c") + descStyle.Render(":copy "),
 		keyStyle.Render("d") + descStyle.Render(":del "),
 		keyStyle.Render("p") + descStyle.Render(":ping "),
 		keyStyle.Render("t") + descStyle.Render(":theme "),
@@ -558,7 +566,18 @@ func (m *Model) renderTwoColumnList() string {
 	
 	// Split items into two columns with scrolling
 	endIdx := min(startIdx+itemsPerScreen, len(items))
-	for i := startIdx; i < endIdx; i++ {
+	
+	// Helper function to render an item or empty placeholder
+	renderItemAtIndex := func(i int) string {
+		// Check if we have an actual item at this position
+		if i >= len(items) {
+			// Return empty placeholder
+			return lipgloss.NewStyle().
+				Width(columnWidth).
+				Height(itemHeight).
+				Render("")
+		}
+		
 		if itm, ok := items[i].(item); ok {
 			isSelected := i == cursor
 			
@@ -658,25 +677,19 @@ func (m *Model) renderTwoColumnList() string {
 			descLine = lipgloss.NewStyle().Width(columnWidth).Render(descLine)
 			tagsLine = lipgloss.NewStyle().Width(columnWidth).Render(tagsLine)
 			
-			itemBlock := lipgloss.JoinVertical(lipgloss.Left, titleLine, descLine, tagsLine)
-			
-			// Alternate between left and right columns
-			if (i-startIdx) < listHeight {
-				leftColumn = append(leftColumn, itemBlock)
-			} else {
-				rightColumn = append(rightColumn, itemBlock)
-			}
+			return lipgloss.JoinVertical(lipgloss.Left, titleLine, descLine, tagsLine)
 		}
+		
+		return lipgloss.NewStyle().Width(columnWidth).Height(itemHeight).Render("")
 	}
 	
-	// Pad columns to equal height
-	emptyItem := lipgloss.NewStyle().
-		Width(columnWidth).
-		Height(itemHeight).
-		Render("")
-	
-	for len(rightColumn) < len(leftColumn) {
-		rightColumn = append(rightColumn, emptyItem)
+	// Render items row-wise: fill left column first, then right column for each row
+	for row := 0; row < listHeight; row++ {
+		leftIdx := startIdx + (row * 2)     // 0, 2, 4, 6...
+		rightIdx := startIdx + (row * 2) + 1 // 1, 3, 5, 7...
+		
+		leftColumn = append(leftColumn, renderItemAtIndex(leftIdx))
+		rightColumn = append(rightColumn, renderItemAtIndex(rightIdx))
 	}
 	
 	// Create gap between columns
