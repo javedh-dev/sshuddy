@@ -1,8 +1,8 @@
-package ui
+package tui
 
 import (
 	"fmt"
-	"sshbuddy/model"
+	"sshbuddy/pkg/models"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -13,9 +13,9 @@ type FormModel struct {
 	inputs         []textinput.Model
 	focused        int
 	err            error
-	host           *model.Host              // If editing, this is the host being edited
+	host           *models.Host              // If editing, this is the host being edited
 	isEditing      bool                     // True if editing existing host
-	validationErrs []model.ValidationError  // Validation errors for current input
+	validationErrs []models.ValidationError  // Validation errors for current input
 }
 
 func NewFormModel() FormModel {
@@ -63,7 +63,7 @@ func NewFormModel() FormModel {
 	}
 }
 
-func NewFormModelWithHost(host model.Host) FormModel {
+func NewFormModelWithHost(host models.Host) FormModel {
 	fm := NewFormModel()
 	fm.isEditing = true
 
@@ -190,7 +190,7 @@ func (m FormModel) View() string {
 	return b.String()
 }
 
-func (m FormModel) GetHost() model.Host {
+func (m FormModel) GetHost() models.Host {
 	// Parse tags from comma-separated string
 	var tags []string
 	tagsInput := strings.TrimSpace(m.inputs[6].Value())
@@ -204,7 +204,7 @@ func (m FormModel) GetHost() model.Host {
 		}
 	}
 
-	return model.Host{
+	return models.Host{
 		Alias:        m.inputs[0].Value(),
 		Hostname:     m.inputs[1].Value(),
 		User:         m.inputs[2].Value(),
@@ -217,5 +217,5 @@ func (m FormModel) GetHost() model.Host {
 }
 
 type FormSubmittedMsg struct {
-	Host model.Host
+	Host models.Host
 }

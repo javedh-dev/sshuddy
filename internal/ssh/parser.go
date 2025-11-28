@@ -1,11 +1,11 @@
-package sshconfig
+package ssh
 
 import (
 	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
-	"sshbuddy/model"
+	"sshbuddy/pkg/models"
 )
 
 // SSHConfigHost represents a host entry from SSH config
@@ -129,8 +129,8 @@ func ParseSSHConfig() ([]SSHConfigHost, error) {
 	return hosts, scanner.Err()
 }
 
-// ConvertToHost converts an SSHConfigHost to a model.Host
-func ConvertToHost(sshHost SSHConfigHost) model.Host {
+// ConvertToHost converts an SSHConfigHost to a models.Host
+func ConvertToHost(sshHost SSHConfigHost) models.Host {
 	hostname := sshHost.HostName
 	if hostname == "" {
 		hostname = sshHost.Host
@@ -165,7 +165,7 @@ func ConvertToHost(sshHost SSHConfigHost) model.Host {
 		tags = append(tags, "forwarding")
 	}
 
-	return model.Host{
+	return models.Host{
 		Alias:        sshHost.Host,
 		Hostname:     hostname,
 		User:         user,
@@ -177,13 +177,13 @@ func ConvertToHost(sshHost SSHConfigHost) model.Host {
 }
 
 // LoadHostsFromSSHConfig loads all hosts from SSH config
-func LoadHostsFromSSHConfig() ([]model.Host, error) {
+func LoadHostsFromSSHConfig() ([]models.Host, error) {
 	sshHosts, err := ParseSSHConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	var hosts []model.Host
+	var hosts []models.Host
 	for _, sshHost := range sshHosts {
 		hosts = append(hosts, ConvertToHost(sshHost))
 	}

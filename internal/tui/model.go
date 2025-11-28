@@ -1,10 +1,10 @@
-package ui
+package tui
 
 import (
 	"fmt"
 	"strings"
-	"sshbuddy/model"
-	"sshbuddy/storage"
+	"sshbuddy/internal/config"
+	"sshbuddy/pkg/models"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,7 +21,7 @@ const (
 )
 
 type item struct {
-	host     model.Host
+	host     models.Host
 	status   string // Ping status indicator
 	pinging  bool   // Is currently being pinged
 	pingTime string // Ping time in ms
@@ -66,23 +66,23 @@ type Model struct {
 	list              list.Model
 	form              FormModel
 	state             sessionState
-	config            *model.Config
+	config            *models.Config
 	pingStatus        map[string]bool          // track ping status for each host
 	pinging           map[string]bool          // track which hosts are currently being pinged
 	pingTimes         map[string]string        // track ping times for each host
 	width             int
 	height            int
-	selectedHost      *model.Host              // Host to connect to after quitting
+	selectedHost      *models.Host              // Host to connect to after quitting
 	editingIndex      int                      // Index of host being edited (-1 if adding new)
-	deleteConfirmHost *model.Host              // Host pending deletion confirmation
+	deleteConfirmHost *models.Host              // Host pending deletion confirmation
 	deleteConfirmIdx  int                      // Index of host pending deletion
-	configErrors      []model.ValidationError  // Config validation errors
+	configErrors      []models.ValidationError  // Config validation errors
 }
 
 func NewModel() Model {
-	cfg, err := storage.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil || cfg == nil {
-		cfg = &model.Config{Hosts: []model.Host{}}
+		cfg = &models.Config{Hosts: []models.Host{}}
 	}
 	
 	// Validate config
@@ -205,7 +205,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Apply and save theme
 					ApplyTheme(newTheme)
 					m.config.Theme = newTheme
-					storage.SaveConfig(m.config)
+					config.SaveConfig(m.config)
 					
 					// Force refresh of list to apply new colors
 					m.refreshList()
@@ -297,7 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Confirm deletion
 				if m.deleteConfirmIdx >= 0 && m.deleteConfirmIdx < len(m.config.Hosts) {
 					m.config.Hosts = append(m.config.Hosts[:m.deleteConfirmIdx], m.config.Hosts[m.deleteConfirmIdx+1:]...)
-					storage.SaveConfig(m.config)
+					config.SaveConfig(m.config)
 					m.refreshList()
 					// Adjust selection if needed
 					if m.deleteConfirmIdx >= len(m.config.Hosts) && len(m.config.Hosts) > 0 {
@@ -355,7 +355,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Adding new host
 			m.config.Hosts = append(m.config.Hosts, msg.Host)
 		}
-		storage.SaveConfig(m.config)
+		config.SaveConfig(m.config)
 		m.state = stateList
 		m.editingIndex = -1
 		m.refreshList()
@@ -741,7 +741,7 @@ func min(a, b int) int {
 }
 
 // GetSelectedHost returns the host selected for SSH connection
-func (m Model) GetSelectedHost() *model.Host {
+func (m Model) GetSelectedHost() *models.Host {
 	return m.selectedHost
 }
 

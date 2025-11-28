@@ -1,12 +1,12 @@
-package storage
+package config
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 
-	"sshbuddy/model"
-	"sshbuddy/sshconfig"
+	"sshbuddy/internal/ssh"
+	"sshbuddy/pkg/models"
 )
 
 func GetDataPath() (string, error) {
@@ -29,17 +29,17 @@ func GetDataPath() (string, error) {
 	return filepath.Join(sshbuddyDir, "config.json"), nil
 }
 
-func LoadConfig() (*model.Config, error) {
+func LoadConfig() (*models.Config, error) {
 	path, err := GetDataPath()
 	if err != nil {
 		return nil, err
 	}
 
-	var config model.Config
+	var config models.Config
 	
 	// Load manual hosts from config file
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		config = model.Config{Hosts: []model.Host{}}
+		config = models.Config{Hosts: []models.Host{}}
 	} else {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -59,7 +59,7 @@ func LoadConfig() (*model.Config, error) {
 	}
 	
 	// Load hosts from SSH config
-	sshHosts, err := sshconfig.LoadHostsFromSSHConfig()
+	sshHosts, err := ssh.LoadHostsFromSSHConfig()
 	if err == nil {
 		// Mark SSH config hosts
 		for i := range sshHosts {
@@ -83,16 +83,16 @@ func LoadConfig() (*model.Config, error) {
 	return &config, nil
 }
 
-func SaveConfig(config *model.Config) error {
+func SaveConfig(config *models.Config) error {
 	path, err := GetDataPath()
 	if err != nil {
 		return err
 	}
 
 	// Only save manual hosts (not SSH config hosts)
-	manualConfig := &model.Config{
+	manualConfig := &models.Config{
 		Theme: config.Theme,
-		Hosts: []model.Host{},
+		Hosts: []models.Host{},
 	}
 	
 	for _, host := range config.Hosts {

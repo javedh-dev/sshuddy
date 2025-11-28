@@ -1,28 +1,28 @@
-package ui
+package tui
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sshbuddy/model"
+	"sshbuddy/pkg/models"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ConnectToHost initiates an SSH connection and exits the TUI
-func ConnectToHost(host model.Host) tea.Cmd {
+func ConnectToHost(host models.Host) tea.Cmd {
 	return func() tea.Msg {
 		return ConnectMsg{host}
 	}
 }
 
 type ConnectMsg struct {
-	Host model.Host
+	Host models.Host
 }
 
 // ExecuteSSH executes SSH connection in the foreground
-func ExecuteSSH(host model.Host) error {
+func ExecuteSSH(host models.Host) error {
 	port := host.Port
 	if port == "" {
 		port = "22"
@@ -58,7 +58,7 @@ func ExecuteSSH(host model.Host) error {
 }
 
 // PingHost checks if a host is reachable using a simple ping
-func PingHost(host model.Host) tea.Cmd {
+func PingHost(host models.Host) tea.Cmd {
 	return func() tea.Msg {
 		// Use ping with 1 count and 1 second timeout
 		cmd := exec.Command("ping", "-c", "1", "-W", "1", host.Hostname)
@@ -95,13 +95,13 @@ func PingHost(host model.Host) tea.Cmd {
 }
 
 type PingResultMsg struct {
-	Host     model.Host
+	Host     models.Host
 	Status   bool   // true if reachable
 	PingTime string // ping time in ms
 }
 
 // StartPingAll starts background ping for all hosts
-func StartPingAll(hosts []model.Host) tea.Cmd {
+func StartPingAll(hosts []models.Host) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, host := range hosts {
 		cmds = append(cmds, PingHost(host))
@@ -118,6 +118,6 @@ func GetHostStatus(status bool) string {
 }
 
 // GetHostKey creates a unique key for a host (for tracking ping status)
-func GetHostKey(host model.Host) string {
+func GetHostKey(host models.Host) string {
 	return strings.ToLower(host.Hostname + ":" + host.User)
 }
