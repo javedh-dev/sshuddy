@@ -368,7 +368,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	// Fixed width box for 2-column layout
 	const boxWidth = 80
-	const minHeight = 26
+	const minHeight = 24
 	
 	// Check if terminal is too small
 	if m.width < boxWidth+4 || m.height < minHeight {
@@ -550,7 +550,7 @@ func (m *Model) renderTwoColumnList() string {
 	const columnWidth = 34 // Each column width
 	const columnGap = 2    // Gap between columns
 	const itemHeight = 3   // Title + Description + Tags
-	const listHeight = 4  // Number of items visible per column
+	const listHeight = 3  // Number of items visible per column
 	
 	var leftColumn, rightColumn []string
 	
