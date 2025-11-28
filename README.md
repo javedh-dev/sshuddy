@@ -7,14 +7,14 @@ A beautiful TUI app to manage SSH connections with live status indicators, multi
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew tap YOUR_USERNAME/tap
+brew tap javedh-dev/tap
 brew install sshbuddy
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/sshbuddy.git
+git clone https://github.com/javedh-dev/sshbuddy.git
 cd sshbuddy
 go build .
 ./sshbuddy
@@ -22,7 +22,7 @@ go build .
 
 ### Download Binary
 
-Download the latest release from the [releases page](https://github.com/YOUR_USERNAME/sshbuddy/releases).
+Download the latest release from the [releases page](https://github.com/javedh-dev/sshbuddy/releases).
 
 ## Quick Start
 
