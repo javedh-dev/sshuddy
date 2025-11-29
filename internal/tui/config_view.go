@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sshbuddy/internal/config"
-	"sshbuddy/internal/termix"
+	"sshbuddy/pkg/models"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,9 +22,8 @@ type SourceConfig struct {
 // ConfigViewModel handles the configuration UI
 type ConfigViewModel struct {
 	sources         []SourceConfig
-	termixConfig    *termix.Config
-	sshConfig       *config.SSHConfig
-	focusIndex      int // Which source is focused
+	config          *models.Config
+	focusIndex      int // Which source/setting is focused
 	editingTermix   bool
 	editingSSHConfig bool
 	termixInputs    []textinput.Model
@@ -39,75 +38,62 @@ type ConfigViewModel struct {
 
 // NewConfigViewModel creates a new configuration view model
 func NewConfigViewModel() ConfigViewModel {
-	// Load current Termix config
-	termixCfg, err := config.LoadTermixConfig()
+	// Load current config
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		termixCfg = &termix.Config{Enabled: false}
-	}
-
-	// Load current SSH config
-	sshCfg, err := config.LoadSSHConfig()
-	if err != nil {
-		sshCfg = &config.SSHConfig{Enabled: true, ConfigPath: ""}
-	}
-
-	// Load sources config
-	sourcesCfg, err := config.LoadSourcesConfig()
-	if err != nil {
-		sourcesCfg = &config.SourcesConfig{
-			SSHBuddyEnabled:  true,
-			SSHConfigEnabled: true,
-			TermixEnabled:    false,
+		cfg = &models.Config{
+			Hosts: []models.Host{},
+			Sources: models.SourcesConfig{
+				SSHBuddyEnabled:  true,
+				SSHConfigEnabled: true,
+				TermixEnabled:    false,
+			},
+			Termix: models.TermixConfig{
+				Enabled: false,
+			},
+			SSH: models.SSHConfig{
+				Enabled: true,
+			},
 		}
 	}
 
-	// Define sources
+	// Define sources and settings
 	sources := []SourceConfig{
 		{
 			Name:         "SSHBuddy",
-			Enabled:      sourcesCfg.SSHBuddyEnabled,
+			Enabled:      cfg.Sources.SSHBuddyEnabled,
 			Description:  "Hosts added manually through SSHBuddy",
 			Configurable: true,
 		},
 		{
 			Name:         "SSH Config",
-			Enabled:      sourcesCfg.SSHConfigEnabled,
+			Enabled:      cfg.Sources.SSHConfigEnabled,
 			Description:  "Hosts from ~/.ssh/config",
 			Configurable: true,
 		},
 		{
 			Name:         "Termix",
-			Enabled:      sourcesCfg.TermixEnabled,
+			Enabled:      cfg.Sources.TermixEnabled,
 			Description:  "Hosts from Termix API server",
+			Configurable: true,
+		},
+		{
+			Name:         "Theme",
+			Enabled:      true, // Always enabled, just shows current theme
+			Description:  fmt.Sprintf("Current: %s", GetCurrentTheme().Name),
 			Configurable: true,
 		},
 	}
 
-	// Create Termix input fields
-	termixInputs := make([]textinput.Model, 3)
+	// Create Termix input fields (only base URL, credentials are prompted when needed)
+	termixInputs := make([]textinput.Model, 1)
 	
 	// Base URL input
 	termixInputs[0] = textinput.New()
 	termixInputs[0].Placeholder = "https://termix.example.com/api"
-	termixInputs[0].SetValue(termixCfg.BaseURL)
+	termixInputs[0].SetValue(cfg.Termix.BaseURL)
 	termixInputs[0].CharLimit = 200
 	termixInputs[0].Width = 50
-	
-	// Username input
-	termixInputs[1] = textinput.New()
-	termixInputs[1].Placeholder = "username"
-	termixInputs[1].SetValue(termixCfg.Username)
-	termixInputs[1].CharLimit = 100
-	termixInputs[1].Width = 50
-	
-	// Password input
-	termixInputs[2] = textinput.New()
-	termixInputs[2].Placeholder = "password"
-	termixInputs[2].SetValue(termixCfg.Password)
-	termixInputs[2].EchoMode = textinput.EchoPassword
-	termixInputs[2].EchoCharacter = '•'
-	termixInputs[2].CharLimit = 100
-	termixInputs[2].Width = 50
 
 	// Create SSH Config input fields
 	sshConfigInputs := make([]textinput.Model, 1)
@@ -115,14 +101,13 @@ func NewConfigViewModel() ConfigViewModel {
 	// Config Path input
 	sshConfigInputs[0] = textinput.New()
 	sshConfigInputs[0].Placeholder = "~/.ssh/config (leave empty for default)"
-	sshConfigInputs[0].SetValue(sshCfg.ConfigPath)
+	sshConfigInputs[0].SetValue(cfg.SSH.ConfigPath)
 	sshConfigInputs[0].CharLimit = 300
 	sshConfigInputs[0].Width = 50
 
 	return ConfigViewModel{
 		sources:          sources,
-		termixConfig:     termixCfg,
-		sshConfig:        sshCfg,
+		config:           cfg,
 		focusIndex:       0,
 		editingTermix:    false,
 		editingSSHConfig: false,
@@ -155,10 +140,10 @@ func (m ConfigViewModel) Update(msg tea.Msg) (ConfigViewModel, tea.Cmd) {
 				return m, nil
 			case "enter":
 				// Save SSH Config
-				m.sshConfig.ConfigPath = strings.TrimSpace(m.sshConfigInputs[0].Value())
+				m.config.SSH.ConfigPath = strings.TrimSpace(m.sshConfigInputs[0].Value())
 				
 				// Save to file
-				if err := config.SaveSSHConfig(m.sshConfig); err != nil {
+				if err := config.SaveConfig(m.config); err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to save: %v", err)
 					return m, nil
 				}
@@ -206,18 +191,16 @@ func (m ConfigViewModel) Update(msg tea.Msg) (ConfigViewModel, tea.Cmd) {
 				return m, nil
 			case "enter":
 				// Save Termix config
-				m.termixConfig.BaseURL = strings.TrimSpace(m.termixInputs[0].Value())
-				m.termixConfig.Username = strings.TrimSpace(m.termixInputs[1].Value())
-				m.termixConfig.Password = m.termixInputs[2].Value()
+				m.config.Termix.BaseURL = strings.TrimSpace(m.termixInputs[0].Value())
 				
 				// Validate
-				if m.termixConfig.Enabled && m.termixConfig.BaseURL == "" {
+				if m.config.Termix.Enabled && m.config.Termix.BaseURL == "" {
 					m.errorMsg = "Base URL is required when Termix is enabled"
 					return m, nil
 				}
 				
 				// Save to file
-				if err := config.SaveTermixConfig(m.termixConfig); err != nil {
+				if err := config.SaveConfig(m.config); err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to save: %v", err)
 					return m, nil
 				}
@@ -247,59 +230,67 @@ func (m ConfigViewModel) Update(msg tea.Msg) (ConfigViewModel, tea.Cmd) {
 			}
 			m.saved = false
 			m.errorMsg = ""
-		case " ":
-			// Toggle enabled state (space key only)
-			if m.sources[m.focusIndex].Configurable {
-				m.sources[m.focusIndex].Enabled = !m.sources[m.focusIndex].Enabled
-				
-				// Save sources configuration
-				sourcesConfig := &config.SourcesConfig{
-					SSHBuddyEnabled:  m.sources[0].Enabled,
-					SSHConfigEnabled: m.sources[1].Enabled,
-					TermixEnabled:    m.sources[2].Enabled,
+		case " ", "enter":
+			// Handle theme cycling or toggle enabled state
+			if m.sources[m.focusIndex].Name == "Theme" {
+				// Cycle through themes
+				themeNames := GetThemeNames()
+				currentThemeName := m.config.Theme
+				if currentThemeName == "" {
+					currentThemeName = "purple"
 				}
 				
-				if err := config.SaveSourcesConfig(sourcesConfig); err != nil {
+				// Find current theme index and move to next
+				currentIdx := 0
+				for i, name := range themeNames {
+					if name == currentThemeName {
+						currentIdx = i
+						break
+					}
+				}
+				
+				nextIdx := (currentIdx + 1) % len(themeNames)
+				newTheme := themeNames[nextIdx]
+				
+				// Apply and save theme
+				ApplyTheme(newTheme)
+				m.config.Theme = newTheme
+				
+				// Update description to show new theme
+				m.sources[m.focusIndex].Description = fmt.Sprintf("Current: %s", GetCurrentTheme().Name)
+				
+				if err := config.SaveConfig(m.config); err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to save: %v", err)
 					m.saved = false
 				} else {
-					// Also update Termix config if it's the Termix source
-					if m.sources[m.focusIndex].Name == "Termix" {
-						m.termixConfig.Enabled = m.sources[m.focusIndex].Enabled
-						config.SaveTermixConfig(m.termixConfig)
-					}
 					m.saved = true
 					m.errorMsg = ""
 				}
-			}
-		case "enter":
-			// Toggle enabled state (enter key only)
-			if m.sources[m.focusIndex].Configurable {
+			} else if m.sources[m.focusIndex].Configurable {
+				// Toggle enabled state for sources
 				m.sources[m.focusIndex].Enabled = !m.sources[m.focusIndex].Enabled
 				
-				// Save sources configuration
-				sourcesConfig := &config.SourcesConfig{
-					SSHBuddyEnabled:  m.sources[0].Enabled,
-					SSHConfigEnabled: m.sources[1].Enabled,
-					TermixEnabled:    m.sources[2].Enabled,
+				// Update config
+				m.config.Sources.SSHBuddyEnabled = m.sources[0].Enabled
+				m.config.Sources.SSHConfigEnabled = m.sources[1].Enabled
+				m.config.Sources.TermixEnabled = m.sources[2].Enabled
+				
+				// Also update Termix enabled if it's the Termix source
+				if m.sources[m.focusIndex].Name == "Termix" {
+					m.config.Termix.Enabled = m.sources[m.focusIndex].Enabled
 				}
 				
-				if err := config.SaveSourcesConfig(sourcesConfig); err != nil {
+				if err := config.SaveConfig(m.config); err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to save: %v", err)
 					m.saved = false
 				} else {
-					// Also update Termix config if it's the Termix source
-					if m.sources[m.focusIndex].Name == "Termix" {
-						m.termixConfig.Enabled = m.sources[m.focusIndex].Enabled
-						config.SaveTermixConfig(m.termixConfig)
-					}
 					m.saved = true
 					m.errorMsg = ""
 				}
 			}
 		case "e":
-			// Edit configuration for the selected source
-			if m.sources[m.focusIndex].Configurable {
+			// Edit configuration for the selected source (not for Theme)
+			if m.sources[m.focusIndex].Configurable && m.sources[m.focusIndex].Name != "Theme" {
 				if m.sources[m.focusIndex].Name == "Termix" {
 					m.editingTermix = true
 					m.termixFocus = 0
@@ -395,7 +386,7 @@ func (m ConfigViewModel) View() string {
 		keyStyle.Render("↑↓") + descStyle.Render(":navigate "),
 		keyStyle.Render("space") + descStyle.Render(":toggle "),
 		keyStyle.Render("e") + descStyle.Render(":edit "),
-		keyStyle.Render("esc/q") + descStyle.Render(":back"),
+		keyStyle.Render("esc") + descStyle.Render(":back"),
 	}
 	footer := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), true, false, false, false).
@@ -441,11 +432,17 @@ func (m ConfigViewModel) View() string {
 func (m ConfigViewModel) renderSource(source SourceConfig, isSelected bool) string {
 	// Status indicator
 	var statusIcon string
-	if source.Enabled {
+	if source.Name == "Theme" {
+		// Diamond icon with theme color for Theme option
+		statusIcon = lipgloss.NewStyle().Foreground(primaryColor).Render("◆")
+	} else if source.Enabled {
 		statusIcon = lipgloss.NewStyle().Foreground(accentColor).Render("✓")
 	} else {
 		statusIcon = lipgloss.NewStyle().Foreground(dimColor).Render("○")
 	}
+	
+	// Add space after icon
+	statusIcon = statusIcon + " "
 	
 	// Source name
 	nameStyle := lipgloss.NewStyle().Foreground(textColor).Bold(true)
@@ -466,11 +463,15 @@ func (m ConfigViewModel) renderSource(source SourceConfig, isSelected bool) stri
 			configIndicator = lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Render(" (press 'e' to edit)")
+		} else if source.Name == "Theme" {
+			configIndicator = lipgloss.NewStyle().
+				Foreground(mutedColor).
+				Render(" (press space/enter to cycle)")
 		}
 	}
 	
 	// Title line
-	titleLine := fmt.Sprintf("%s %s%s", statusIcon, name, configIndicator)
+	titleLine := fmt.Sprintf("%s%s%s", statusIcon, name, configIndicator)
 	
 	// Add selection indicator
 	if isSelected {
@@ -527,9 +528,14 @@ func (m ConfigViewModel) renderTermixEdit() string {
 	// Form fields
 	fields := []string{
 		m.renderField("Base URL", m.termixInputs[0], 0, "API endpoint (e.g., https://termix.example.com/api)"),
-		m.renderField("Username", m.termixInputs[1], 1, "Your Termix username"),
-		m.renderField("Password", m.termixInputs[2], 2, "Your Termix password"),
 	}
+	
+	// Add note about credentials
+	credNote := lipgloss.NewStyle().
+		Foreground(mutedColor).
+		Italic(true).
+		Render("Note: Credentials will be prompted when needed and not stored.")
+	fields = append(fields, credNote)
 	
 	formContent := lipgloss.JoinVertical(lipgloss.Left, fields...)
 	
@@ -541,7 +547,7 @@ func (m ConfigViewModel) renderTermixEdit() string {
 			Render("✗ " + m.errorMsg)
 	}
 	
-	// Footer
+	// Footer (in Termix edit view)
 	keyBindings := []string{
 		keyStyle.Render("↑↓/tab") + descStyle.Render(":navigate "),
 		keyStyle.Render("enter") + descStyle.Render(":save "),

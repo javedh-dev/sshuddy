@@ -1,0 +1,19 @@
+{
+  "hosts": [],
+  "theme": "purple",
+  "sources": {
+    "sshbuddyEnabled": true,
+    "sshConfigEnabled": true,
+    "termixEnabled": false
+  },
+  "termix": {
+    "enabled": false,
+    "baseUrl": "https://your-termix-server.com/api",
+    "jwt": "",
+    "jwtExpiry": 0
+  },
+  "ssh": {
+    "enabled": true,
+    "configPath": ""
+  }
+}

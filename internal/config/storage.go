@@ -11,19 +11,6 @@ import (
 	"sshbuddy/pkg/models"
 )
 
-// SourcesConfig holds the enabled/disabled state for each source
-type SourcesConfig struct {
-	SSHBuddyEnabled  bool `json:"sshbuddyEnabled"`
-	SSHConfigEnabled bool `json:"sshConfigEnabled"`
-	TermixEnabled    bool `json:"termixEnabled"`
-}
-
-// SSHConfig holds SSH config source configuration
-type SSHConfig struct {
-	Enabled    bool   `json:"enabled"`
-	ConfigPath string `json:"configPath,omitempty"` // Custom path, empty means default ~/.ssh/config
-}
-
 func GetDataPath() (string, error) {
 	// Use XDG_CONFIG_HOME if set, otherwise default to ~/.config
 	configDir := os.Getenv("XDG_CONFIG_HOME")
@@ -53,9 +40,23 @@ func LoadConfig() (*models.Config, error) {
 
 	var config models.Config
 	
-	// Load manual hosts from config file
+	// Load config from file
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		config = models.Config{Hosts: []models.Host{}}
+		// Initialize with defaults
+		config = models.Config{
+			Hosts: []models.Host{},
+			Sources: models.SourcesConfig{
+				SSHBuddyEnabled:  true,
+				SSHConfigEnabled: true,
+				TermixEnabled:    false,
+			},
+			Termix: models.TermixConfig{
+				Enabled: false,
+			},
+			SSH: models.SSHConfig{
+				Enabled: true,
+			},
+		}
 	} else {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -66,17 +67,6 @@ func LoadConfig() (*models.Config, error) {
 		if err := json.Unmarshal(data, &config); err != nil {
 			logError("Unmarshal config failed", err)
 			return nil, err
-		}
-	}
-	
-	// Load sources configuration
-	sourcesConfig, sourcesErr := LoadSourcesConfig()
-	if sourcesErr != nil {
-		// Use defaults if can't load
-		sourcesConfig = &SourcesConfig{
-			SSHBuddyEnabled:  true,
-			SSHConfigEnabled: true,
-			TermixEnabled:    false,
 		}
 	}
 	
@@ -91,7 +81,7 @@ func LoadConfig() (*models.Config, error) {
 	existingAliases := make(map[string]bool)
 	
 	// Only add manual hosts if SSHBuddy source is enabled
-	if sourcesConfig.SSHBuddyEnabled {
+	if config.Sources.SSHBuddyEnabled {
 		for _, host := range config.Hosts {
 			existingAliases[host.Alias] = true
 		}
@@ -101,7 +91,7 @@ func LoadConfig() (*models.Config, error) {
 	}
 	
 	// Load hosts from SSH config if enabled
-	if sourcesConfig.SSHConfigEnabled {
+	if config.Sources.SSHConfigEnabled && config.SSH.Enabled {
 		sshHosts, err := ssh.LoadHostsFromSSHConfig()
 		if err == nil {
 			// Mark SSH config hosts
@@ -120,18 +110,26 @@ func LoadConfig() (*models.Config, error) {
 	}
 	
 	// Load hosts from Termix API if enabled
-	termixConfig, termixErr := LoadTermixConfig()
-	if sourcesConfig.TermixEnabled && termixErr == nil && termixConfig.Enabled && termixConfig.BaseURL != "" {
-		logError("Termix config loaded", fmt.Errorf("baseUrl=%s, username=%s", termixConfig.BaseURL, termixConfig.Username))
+	if config.Sources.TermixEnabled && config.Termix.Enabled && config.Termix.BaseURL != "" {
+		logError("Termix config loaded", fmt.Errorf("baseUrl=%s", config.Termix.BaseURL))
 		
-		client := termix.NewClient(termixConfig.BaseURL, termixConfig.Username, termixConfig.Password, termixConfig.JWT)
-		termixHosts, termixFetchErr := client.FetchHosts()
+		client := termix.NewClient(config.Termix.BaseURL, config.Termix.JWT, config.Termix.JWTExpiry)
+		
+		// Try to fetch hosts without credentials first (using cached token)
+		termixHosts, termixFetchErr := client.FetchHosts("", "")
+		
+		// If auth is required, return a special error that the TUI can handle
 		if termixFetchErr != nil {
-			// Log the full error
+			if _, isAuthError := termixFetchErr.(*termix.AuthError); isAuthError {
+				// Return auth error to trigger credential prompt in TUI
+				return nil, termixFetchErr
+			}
+			
+			// Log other errors
 			logError("Termix FetchHosts failed", termixFetchErr)
 			
 			// Return error to show in UI with config file hint
-			configPath, _ := GetTermixConfigPath()
+			configPath, _ := GetDataPath()
 			fullError := fmt.Errorf("%w\n\nCheck your Termix configuration at: %s", termixFetchErr, configPath)
 			logError("Returning error to UI", fullError)
 			return nil, fullError
@@ -147,10 +145,11 @@ func LoadConfig() (*models.Config, error) {
 			}
 		}
 		
-		// Save the JWT token for future use if it was updated
-		if client.GetJWT() != termixConfig.JWT {
-			termixConfig.JWT = client.GetJWT()
-			SaveTermixConfig(termixConfig)
+		// Save the JWT token and expiry if they were updated
+		if client.GetJWT() != config.Termix.JWT || client.GetJWTExpiry() != config.Termix.JWTExpiry {
+			config.Termix.JWT = client.GetJWT()
+			config.Termix.JWTExpiry = client.GetJWTExpiry()
+			SaveConfig(&config)
 		}
 	}
 
@@ -164,18 +163,21 @@ func SaveConfig(config *models.Config) error {
 	}
 
 	// Only save manual hosts (not SSH config or termix hosts)
-	manualConfig := &models.Config{
-		Theme: config.Theme,
-		Hosts: []models.Host{},
+	saveConfig := &models.Config{
+		Theme:   config.Theme,
+		Sources: config.Sources,
+		Termix:  config.Termix,
+		SSH:     config.SSH,
+		Hosts:   []models.Host{},
 	}
 	
 	for _, host := range config.Hosts {
 		if host.Source != "ssh-config" && host.Source != "termix" {
-			manualConfig.Hosts = append(manualConfig.Hosts, host)
+			saveConfig.Hosts = append(saveConfig.Hosts, host)
 		}
 	}
 
-	data, err := json.MarshalIndent(manualConfig, "", "  ")
+	data, err := json.MarshalIndent(saveConfig, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -183,64 +185,7 @@ func SaveConfig(config *models.Config) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// GetTermixConfigPath returns the path to the Termix config file
-func GetTermixConfigPath() (string, error) {
-	configDir := os.Getenv("XDG_CONFIG_HOME")
-	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		configDir = filepath.Join(homeDir, ".config")
-	}
-	
-	sshbuddyDir := filepath.Join(configDir, "sshbuddy")
-	if err := os.MkdirAll(sshbuddyDir, 0755); err != nil {
-		return "", err
-	}
-	
-	return filepath.Join(sshbuddyDir, "termix.json"), nil
-}
 
-// LoadTermixConfig loads the Termix API configuration
-func LoadTermixConfig() (*termix.Config, error) {
-	path, err := GetTermixConfigPath()
-	if err != nil {
-		return nil, err
-	}
-
-	// Return default disabled config if file doesn't exist
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return &termix.Config{Enabled: false}, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var config termix.Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
-	}
-
-	return &config, nil
-}
-
-// SaveTermixConfig saves the Termix API configuration
-func SaveTermixConfig(config *termix.Config) error {
-	path, err := GetTermixConfigPath()
-	if err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
-}
 
 // logError logs errors to a debug file for troubleshooting
 func logError(context string, err error) {
@@ -257,124 +202,69 @@ func logError(context string, err error) {
 	logFile.WriteString(logLine)
 }
 
-// GetSourcesConfigPath returns the path to the sources config file
-func GetSourcesConfigPath() (string, error) {
-	configDir := os.Getenv("XDG_CONFIG_HOME")
-	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		configDir = filepath.Join(homeDir, ".config")
-	}
-	
-	sshbuddyDir := filepath.Join(configDir, "sshbuddy")
-	if err := os.MkdirAll(sshbuddyDir, 0755); err != nil {
-		return "", err
-	}
-	
-	return filepath.Join(sshbuddyDir, "sources.json"), nil
-}
 
-// LoadSourcesConfig loads the sources configuration
-func LoadSourcesConfig() (*SourcesConfig, error) {
-	path, err := GetSourcesConfigPath()
+
+// LoadConfigRaw loads the config file without fetching external sources (SSH config, Termix)
+func LoadConfigRaw() (*models.Config, error) {
+	path, err := GetDataPath()
 	if err != nil {
 		return nil, err
 	}
 
-	// Return default config if file doesn't exist (all enabled by default)
+	var config models.Config
+	
+	// Load config from file
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return &SourcesConfig{
-			SSHBuddyEnabled:  true,
-			SSHConfigEnabled: true,
-			TermixEnabled:    false,
-		}, nil
-	}
+		// Initialize with defaults
+		config = models.Config{
+			Hosts: []models.Host{},
+			Sources: models.SourcesConfig{
+				SSHBuddyEnabled:  true,
+				SSHConfigEnabled: true,
+				TermixEnabled:    false,
+			},
+			Termix: models.TermixConfig{
+				Enabled: false,
+			},
+			SSH: models.SSHConfig{
+				Enabled: true,
+			},
+		}
+	} else {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+		if err := json.Unmarshal(data, &config); err != nil {
+			return nil, err
+		}
 	}
-
-	var config SourcesConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
-	}
-
+	
 	return &config, nil
 }
 
-// SaveSourcesConfig saves the sources configuration
-func SaveSourcesConfig(config *SourcesConfig) error {
-	path, err := GetSourcesConfigPath()
+// AuthenticateTermix authenticates with Termix using provided credentials and updates the config
+func AuthenticateTermix(username, password string) error {
+	// Load config without fetching Termix hosts to avoid circular dependency
+	config, err := LoadConfigRaw()
 	if err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
-}
-
-// GetSSHConfigPath returns the path to the SSH config file
-func GetSSHConfigPath() (string, error) {
-	configDir := os.Getenv("XDG_CONFIG_HOME")
-	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		configDir = filepath.Join(homeDir, ".config")
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 	
-	sshbuddyDir := filepath.Join(configDir, "sshbuddy")
-	if err := os.MkdirAll(sshbuddyDir, 0755); err != nil {
-		return "", err
+	if !config.Termix.Enabled || config.Termix.BaseURL == "" {
+		return fmt.Errorf("termix is not enabled or baseUrl is not configured")
 	}
 	
-	return filepath.Join(sshbuddyDir, "sshconfig.json"), nil
-}
-
-// LoadSSHConfig loads the SSH config source configuration
-func LoadSSHConfig() (*SSHConfig, error) {
-	path, err := GetSSHConfigPath()
-	if err != nil {
-		return nil, err
-	}
-
-	// Return default config if file doesn't exist
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return &SSHConfig{Enabled: true, ConfigPath: ""}, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var config SSHConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
-	}
-
-	return &config, nil
-}
-
-// SaveSSHConfig saves the SSH config source configuration
-func SaveSSHConfig(config *SSHConfig) error {
-	path, err := GetSSHConfigPath()
+	client := termix.NewClient(config.Termix.BaseURL, "", 0)
+	jwt, expiry, err := client.Authenticate(username, password)
 	if err != nil {
 		return err
 	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
+	
+	// Update config with new token and expiry
+	config.Termix.JWT = jwt
+	config.Termix.JWTExpiry = expiry
+	
+	return SaveConfig(config)
 }

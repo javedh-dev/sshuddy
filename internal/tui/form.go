@@ -269,7 +269,7 @@ func (m FormModel) View() string {
 		keyStyle.Render("↑↓/tab") + descStyle.Render(":navigate "),
 		keyStyle.Render("←→") + descStyle.Render(":columns "),
 		keyStyle.Render("enter") + descStyle.Render(":save "),
-		keyStyle.Render("esc/q") + descStyle.Render(":cancel"),
+		keyStyle.Render("esc") + descStyle.Render(":cancel"),
 	}
 	footer := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), true, false, false, false).

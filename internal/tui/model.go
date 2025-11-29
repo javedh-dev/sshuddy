@@ -19,6 +19,7 @@ const (
 	stateConfirmDelete
 	stateConfigError
 	stateConfig
+	stateTermixAuth
 )
 
 type item struct {
@@ -67,6 +68,7 @@ type Model struct {
 	list              list.Model
 	form              FormModel
 	configView        ConfigViewModel
+	termixAuth        TermixAuthModel
 	state             sessionState
 	config            *models.Config
 	pingStatus        map[string]bool          // track ping status for each host
@@ -84,17 +86,24 @@ type Model struct {
 func NewModel() Model {
 	cfg, err := config.LoadConfig()
 	var validationErrors []models.ValidationError
+	var needsTermixAuth bool
 	
 	if err != nil {
-		// Convert error to validation error for display
-		validationErrors = []models.ValidationError{
-			{
-				Field:   "Config",
-				Message: err.Error(),
-				Index:   -1,
-			},
+		// Check if this is a Termix auth error
+		if strings.Contains(err.Error(), "authentication required") {
+			needsTermixAuth = true
+			cfg = &models.Config{Hosts: []models.Host{}}
+		} else {
+			// Convert error to validation error for display
+			validationErrors = []models.ValidationError{
+				{
+					Field:   "Config",
+					Message: err.Error(),
+					Index:   -1,
+				},
+			}
+			cfg = &models.Config{Hosts: []models.Host{}}
 		}
-		cfg = &models.Config{Hosts: []models.Host{}}
 	} else {
 		// Validate config
 		validationErrors = cfg.Validate()
@@ -133,7 +142,7 @@ func NewModel() Model {
 		Padding(0, 0, 0, 1)
 	
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
-		Foreground(textColor).
+		Foreground(primaryColor).
 		Padding(0, 0, 0, 2)
 	
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
@@ -151,6 +160,7 @@ func NewModel() Model {
 		list:         l,
 		form:         NewFormModel(),
 		configView:   NewConfigViewModel(),
+		termixAuth:   NewTermixAuthModel(),
 		state:        stateList,
 		config:       cfg,
 		pingStatus:   make(map[string]bool),
@@ -160,8 +170,11 @@ func NewModel() Model {
 		configErrors: validationErrors,
 	}
 	
-	// If there are validation errors, show error state
-	if len(validationErrors) > 0 {
+	// If Termix auth is needed, show auth form
+	if needsTermixAuth {
+		m.state = stateTermixAuth
+	} else if len(validationErrors) > 0 {
+		// If there are validation errors, show error state
 		m.state = stateConfigError
 	}
 	
@@ -202,34 +215,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.configView.width = m.width
 					m.configView.height = m.height
 					return m, m.configView.Init()
-				case "t":
-					// Cycle through themes
-					themeNames := GetThemeNames()
-					currentThemeName := m.config.Theme
-					if currentThemeName == "" {
-						currentThemeName = "purple"
-					}
-					
-					// Find current theme index and move to next
-					currentIdx := 0
-					for i, name := range themeNames {
-						if name == currentThemeName {
-							currentIdx = i
-							break
-						}
-					}
-					
-					nextIdx := (currentIdx + 1) % len(themeNames)
-					newTheme := themeNames[nextIdx]
-					
-					// Apply and save theme
-					ApplyTheme(newTheme)
-					m.config.Theme = newTheme
-					config.SaveConfig(m.config)
-					
-					// Force refresh of list to apply new colors
-					m.refreshList()
-					return m, nil
 				case "n":
 					m.state = stateForm
 					m.form = NewFormModel() // Reset form
@@ -328,18 +313,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		} else if m.state == stateForm {
-			if msg.String() == "esc" || msg.String() == "q" {
+			if msg.String() == "esc" {
 				m.state = stateList
 				return m, nil
 			}
 		} else if m.state == stateConfig {
-			if msg.String() == "esc" || msg.String() == "q" {
+			if msg.String() == "esc" {
 				// Reload config in case it was changed
 				cfg, err := config.LoadConfig()
 				if err == nil {
 					m.config = cfg
 					m.refreshList()
 				}
+				m.state = stateList
+				return m, nil
+			}
+		} else if m.state == stateTermixAuth {
+			if msg.String() == "esc" {
+				// Cancel auth and return to list (without Termix hosts)
 				m.state = stateList
 				return m, nil
 			}
@@ -397,6 +388,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update form size
 		m.form.width = msg.Width
 		m.form.height = msg.Height
+		
+		// Update termix auth size
+		m.termixAuth.width = msg.Width
+		m.termixAuth.height = msg.Height
 
 	case PingResultMsg:
 		// Update ping status, time, and clear pinging state
@@ -426,6 +421,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Store the host and quit the TUI
 		m.selectedHost = &msg.Host
 		return m, tea.Quit
+	
+	case TermixAuthSuccessMsg:
+		// Reload config after successful auth
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			// If still auth error, stay in auth state
+			if strings.Contains(err.Error(), "authentication required") {
+				return m, nil
+			}
+			// Other errors - show error state
+			m.configErrors = []models.ValidationError{
+				{
+					Field:   "Config",
+					Message: err.Error(),
+					Index:   -1,
+				},
+			}
+			m.state = stateConfigError
+			return m, nil
+		}
+		m.config = cfg
+		m.refreshList()
+		m.state = stateList
+		// Start pinging all hosts
+		for _, h := range m.config.Hosts {
+			key := GetHostKey(h)
+			m.pinging[key] = true
+		}
+		return m, StartPingAll(m.config.Hosts)
 	}
 
 	if m.state == stateList {
@@ -436,6 +460,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else if m.state == stateConfig {
 		m.configView, cmd = m.configView.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.state == stateTermixAuth {
+		m.termixAuth, cmd = m.termixAuth.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 	// No update needed for stateConfirmDelete
@@ -485,6 +512,11 @@ func (m Model) View() string {
 		return m.configView.View()
 	}
 	
+	if m.state == stateTermixAuth {
+		// Termix auth view
+		return m.termixAuth.View()
+	}
+	
 	if m.state == stateConfirmDelete {
 		// Confirmation dialog
 		return m.renderDeleteConfirmation()
@@ -530,7 +562,6 @@ func (m Model) View() string {
 		keyStyle.Render("d") + descStyle.Render(":del "),
 		keyStyle.Render("p") + descStyle.Render(":ping "),
 		keyStyle.Render("s") + descStyle.Render(":settings "),
-		keyStyle.Render("t") + descStyle.Render(":theme "),
 		keyStyle.Render("/") + descStyle.Render(":search "),
 		keyStyle.Render("q") + descStyle.Render(":quit"),
 	}
@@ -674,15 +705,19 @@ func (m *Model) renderTwoColumnList() string {
 			
 			// Title line - build with alias and ping time
 			alias := itm.host.Alias
-			pingTimeStr := ""
-			if itm.pingTime != "" {
-				pingTimeStr = lipgloss.NewStyle().Foreground(dimColor).Render(fmt.Sprintf(" (%s)", itm.pingTime))
-			}
 			
 			// Truncate alias to fit with ping time
 			maxAliasLen := 15
 			if len(alias) > maxAliasLen {
 				alias = alias[:maxAliasLen-3] + "..."
+			}
+			
+			// Style the alias with primary color
+			styledAlias := lipgloss.NewStyle().Foreground(primaryColor).Render(alias)
+			
+			pingTimeStr := ""
+			if itm.pingTime != "" {
+				pingTimeStr = lipgloss.NewStyle().Foreground(dimColor).Render(fmt.Sprintf(" (%s)", itm.pingTime))
 			}
 			
 			port := itm.host.Port
@@ -701,21 +736,20 @@ func (m *Model) renderTwoColumnList() string {
 			
 			var titleLine, descLine string
 			if isSelected {
-				// Selected item with border - need to account for border width
+				// Selected item with thick border - need to account for border width
 				titleLine = lipgloss.NewStyle().
-					Foreground(primaryColor).
 					Bold(true).
 					BorderLeft(true).
-					BorderStyle(lipgloss.NormalBorder()).
+					BorderStyle(lipgloss.ThickBorder()).
 					BorderForeground(primaryColor).
 					Padding(0, 0, 0, 1).
 					Width(columnWidth - 2). // Subtract border + padding
-					Render(fmt.Sprintf("%s %s%s", statusText, alias, pingTimeStr))
+					Render(fmt.Sprintf("%s %s%s", statusText, styledAlias, pingTimeStr))
 				
 				descLine = lipgloss.NewStyle().
 					Foreground(mutedColor).
 					BorderLeft(true).
-					BorderStyle(lipgloss.NormalBorder()).
+					BorderStyle(lipgloss.ThickBorder()).
 					BorderForeground(primaryColor).
 					Padding(0, 0, 0, 1).
 					Width(columnWidth - 2). // Subtract border + padding
@@ -723,7 +757,7 @@ func (m *Model) renderTwoColumnList() string {
 				
 				sourceLine = lipgloss.NewStyle().
 					BorderLeft(true).
-					BorderStyle(lipgloss.NormalBorder()).
+					BorderStyle(lipgloss.ThickBorder()).
 					BorderForeground(primaryColor).
 					Padding(0, 0, 0, 1).
 					Width(columnWidth - 2).
@@ -731,10 +765,9 @@ func (m *Model) renderTwoColumnList() string {
 			} else {
 				// Normal item without border - use full width with padding
 				titleLine = lipgloss.NewStyle().
-					Foreground(textColor).
 					Padding(0, 0, 0, 2).
 					Width(columnWidth - 2). // Subtract padding
-					Render(fmt.Sprintf("%s %s%s", statusText, alias, pingTimeStr))
+					Render(fmt.Sprintf("%s %s%s", statusText, styledAlias, pingTimeStr))
 				
 				descLine = lipgloss.NewStyle().
 					Foreground(dimColor).
@@ -806,29 +839,35 @@ func (m Model) GetSelectedHost() *models.Host {
 	return m.selectedHost
 }
 
-// renderSource renders the source label with muted color
+// renderSource renders the source label with icons
 func renderSource(source string, maxWidth int, isSelected bool) string {
 	if source == "" {
 		source = "sshbuddy"
 	}
 	
-	// Map source names to display names
-	displayName := source
+	// Map source names to display names and icons
+	var displayName string
+	var icon string
+	
 	switch source {
-	case "manual":
+	case "manual", "sshbuddy":
+		icon = "◆" // Diamond for manual/sshbuddy
 		displayName = "sshbuddy"
 	case "ssh-config":
+		icon = "■" // Square for config file
 		displayName = "config"
 	case "termix":
+		icon = "▲" // Triangle for API/cloud
 		displayName = "termix"
+	default:
+		icon = "○"
+		displayName = source
 	}
 	
-	// Use dimColor for source (same as ping time)
-	sourceStyle := lipgloss.NewStyle().
-		Foreground(dimColor).
-		Bold(false)
+	// Use consistent dim color for all sources
+	sourceStyle := lipgloss.NewStyle().Foreground(dimColor)
 	
-	return sourceStyle.Render("source: " + displayName)
+	return sourceStyle.Render(icon + " " + displayName)
 }
 
 // renderDeleteConfirmation renders the delete confirmation dialog

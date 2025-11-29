@@ -22,7 +22,7 @@ var themes = map[string]Theme{
 	"purple": {
 		Name:        "Purple Dream",
 		Primary:     lipgloss.Color("#7C3AED"), // Darker, more saturated purple
-		Accent:      lipgloss.Color("#059669"), // Darker green
+		Accent:      lipgloss.Color("#2563EB"), // Blue accent
 		Error:       lipgloss.Color("#DC2626"), // Darker red
 		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
 		Muted:       lipgloss.Color("#6B7280"), // Medium gray
@@ -33,7 +33,7 @@ var themes = map[string]Theme{
 	"blue": {
 		Name:        "Ocean Blue",
 		Primary:     lipgloss.Color("#2563EB"), // Darker, more saturated blue
-		Accent:      lipgloss.Color("#059669"), // Darker green
+		Accent:      lipgloss.Color("#0891B2"), // Cyan accent
 		Error:       lipgloss.Color("#DC2626"), // Darker red
 		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
 		Muted:       lipgloss.Color("#6B7280"), // Medium gray
@@ -66,7 +66,7 @@ var themes = map[string]Theme{
 	"amber": {
 		Name:        "Sunset Amber",
 		Primary:     lipgloss.Color("#D97706"), // Darker, more saturated amber
-		Accent:      lipgloss.Color("#059669"), // Darker green
+		Accent:      lipgloss.Color("#DC2626"), // Red accent
 		Error:       lipgloss.Color("#DC2626"), // Darker red
 		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
 		Muted:       lipgloss.Color("#6B7280"), // Medium gray
@@ -147,18 +147,18 @@ var (
 	descStyle = lipgloss.NewStyle().
 			Foreground(dimColor)
 
-	// Status indicator styles (text-based)
+	// Status indicator styles (text-based) - consistent across all themes
 	statusOnlineStyle = lipgloss.NewStyle().
-				Foreground(accentColor)
+				Foreground(lipgloss.Color("#10B981")) // Green
 
 	statusOfflineStyle = lipgloss.NewStyle().
-				Foreground(errorColor)
+				Foreground(lipgloss.Color("#EF4444")) // Red
 
 	statusUnknownStyle = lipgloss.NewStyle().
-				Foreground(dimColor)
+				Foreground(lipgloss.Color("#9CA3AF")) // Gray
 
 	statusPingingStyle = lipgloss.NewStyle().
-				Foreground(currentTheme.PingingWarn)
+				Foreground(lipgloss.Color("#F59E0B")) // Yellow/Amber
 )
 
 // ApplyTheme updates all styles with the selected theme
@@ -190,10 +190,11 @@ func ApplyTheme(themeName string) {
 	instructionsStyle = instructionsStyle.Foreground(dimColor)
 	keyStyle = keyStyle.Foreground(primaryColor)
 	descStyle = descStyle.Foreground(dimColor)
-	statusOnlineStyle = statusOnlineStyle.Foreground(accentColor)
-	statusOfflineStyle = statusOfflineStyle.Foreground(errorColor)
-	statusUnknownStyle = statusUnknownStyle.Foreground(dimColor)
-	statusPingingStyle = statusPingingStyle.Foreground(theme.PingingWarn)
+	// Status indicators remain consistent across themes
+	statusOnlineStyle = statusOnlineStyle.Foreground(lipgloss.Color("#10B981"))   // Green
+	statusOfflineStyle = statusOfflineStyle.Foreground(lipgloss.Color("#EF4444")) // Red
+	statusUnknownStyle = statusUnknownStyle.Foreground(lipgloss.Color("#9CA3AF")) // Gray
+	statusPingingStyle = statusPingingStyle.Foreground(lipgloss.Color("#F59E0B")) // Yellow/Amber
 }
 
 // GetThemeNames returns a list of available theme names

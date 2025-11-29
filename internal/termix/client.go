@@ -47,53 +47,50 @@ type TermixHost struct {
 
 // Config holds Termix API configuration
 type Config struct {
-	Enabled  bool   `json:"enabled"`
-	BaseURL  string `json:"baseUrl"`
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	JWT      string `json:"jwt,omitempty"` // Cached JWT token
+	Enabled    bool   `json:"enabled"`
+	BaseURL    string `json:"baseUrl"`
+	JWT        string `json:"jwt,omitempty"`        // Cached JWT token
+	JWTExpiry  int64  `json:"jwtExpiry,omitempty"`  // JWT expiry timestamp (Unix time)
 }
 
 // Client handles communication with Termix API
 type Client struct {
-	baseURL  string
-	username string
-	password string
-	jwt      string
-	client   *http.Client
+	baseURL   string
+	jwt       string
+	jwtExpiry int64
+	client    *http.Client
 }
 
 // NewClient creates a new Termix API client
-func NewClient(baseURL, username, password, jwt string) *Client {
+func NewClient(baseURL, jwt string, jwtExpiry int64) *Client {
 	return &Client{
-		baseURL:  baseURL,
-		username: username,
-		password: password,
-		jwt:      jwt,
+		baseURL:   baseURL,
+		jwt:       jwt,
+		jwtExpiry: jwtExpiry,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// Authenticate logs in to Termix and returns the JWT token
-func (c *Client) Authenticate() (string, error) {
+// Authenticate logs in to Termix and returns the JWT token and expiry
+func (c *Client) Authenticate(username, password string) (string, int64, error) {
 	loginURL := c.baseURL + "/users/login"
-	logDebug("Termix Authenticate", fmt.Sprintf("URL: %s, Username: %s", loginURL, c.username))
+	logDebug("Termix Authenticate", fmt.Sprintf("URL: %s, Username: %s", loginURL, username))
 	
 	loginData := map[string]string{
-		"username": c.username,
-		"password": c.password,
+		"username": username,
+		"password": password,
 	}
 	
 	jsonData, err := json.Marshal(loginData)
 	if err != nil {
-		return "", fmt.Errorf("termix: failed to marshal login data: %w", err)
+		return "", 0, fmt.Errorf("termix: failed to marshal login data: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", loginURL, strings.NewReader(string(jsonData)))
 	if err != nil {
-		return "", fmt.Errorf("termix: failed to create auth request (check baseUrl): %w", err)
+		return "", 0, fmt.Errorf("termix: failed to create auth request (check baseUrl): %w", err)
 	}
 	
 	req.Header.Set("Content-Type", "application/json")
@@ -101,7 +98,7 @@ func (c *Client) Authenticate() (string, error) {
 	resp, err := c.client.Do(req)
 	if err != nil {
 		logDebug("Termix Auth Request Failed", err.Error())
-		return "", fmt.Errorf("termix: connection failed (check baseUrl and network): %w", err)
+		return "", 0, fmt.Errorf("termix: connection failed (check baseUrl and network): %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -114,32 +111,68 @@ func (c *Client) Authenticate() (string, error) {
 		if len(bodyPreview) > 200 {
 			bodyPreview = bodyPreview[:200] + "..."
 		}
-		return "", fmt.Errorf("termix: authentication failed (status %d, check username/password): %s", resp.StatusCode, bodyPreview)
+		return "", 0, fmt.Errorf("termix: authentication failed (status %d, check username/password): %s", resp.StatusCode, bodyPreview)
 	}
 
 	// Extract JWT from Set-Cookie header
+	var jwtToken string
+	var jwtExpiry int64
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == "jwt" {
-			c.jwt = cookie.Value
-			return cookie.Value, nil
+			jwtToken = cookie.Value
+			// Calculate expiry from cookie MaxAge or Expires
+			if cookie.MaxAge > 0 {
+				jwtExpiry = time.Now().Unix() + int64(cookie.MaxAge)
+			} else if !cookie.Expires.IsZero() {
+				jwtExpiry = cookie.Expires.Unix()
+			} else {
+				// Default to 24 hours if no expiry is set
+				jwtExpiry = time.Now().Add(24 * time.Hour).Unix()
+			}
+			c.jwt = jwtToken
+			c.jwtExpiry = jwtExpiry
+			return jwtToken, jwtExpiry, nil
 		}
 	}
 
-	return "", fmt.Errorf("termix: JWT cookie not found (server may not be Termix API)")
+	return "", 0, fmt.Errorf("termix: JWT cookie not found (server may not be Termix API)")
+}
+
+// IsTokenExpired checks if the JWT token is expired
+func (c *Client) IsTokenExpired() bool {
+	if c.jwt == "" || c.jwtExpiry == 0 {
+		return true
+	}
+	// Add 5 minute buffer before actual expiry
+	return time.Now().Unix() >= (c.jwtExpiry - 300)
+}
+
+// AuthError represents an authentication error that requires user credentials
+type AuthError struct {
+	Message string
+}
+
+func (e *AuthError) Error() string {
+	return e.Message
 }
 
 // FetchHosts retrieves hosts from the Termix API
-func (c *Client) FetchHosts() ([]models.Host, error) {
-	logDebug("Termix FetchHosts", fmt.Sprintf("Starting, JWT present: %v", c.jwt != ""))
+func (c *Client) FetchHosts(username, password string) ([]models.Host, error) {
+	logDebug("Termix FetchHosts", fmt.Sprintf("Starting, JWT present: %v, expired: %v", c.jwt != "", c.IsTokenExpired()))
 	
-	// Authenticate if we don't have a JWT
-	if c.jwt == "" {
-		jwt, err := c.Authenticate()
+	// Check if token is expired or missing
+	if c.IsTokenExpired() {
+		if username == "" || password == "" {
+			return nil, &AuthError{Message: "termix: authentication required - token expired or missing"}
+		}
+		
+		jwt, expiry, err := c.Authenticate(username, password)
 		if err != nil {
 			logDebug("Termix FetchHosts Auth Failed", err.Error())
 			return nil, err
 		}
 		c.jwt = jwt
+		c.jwtExpiry = expiry
 		logDebug("Termix FetchHosts Auth Success", "JWT obtained")
 	}
 
@@ -166,13 +199,18 @@ func (c *Client) FetchHosts() ([]models.Host, error) {
 	}
 	defer resp.Body.Close()
 
-	// If unauthorized, try to re-authenticate
+	// If unauthorized, token might be invalid - require re-authentication
 	if resp.StatusCode == http.StatusUnauthorized {
-		jwt, err := c.Authenticate()
+		if username == "" || password == "" {
+			return nil, &AuthError{Message: "termix: authentication required - token invalid"}
+		}
+		
+		jwt, expiry, err := c.Authenticate(username, password)
 		if err != nil {
 			return nil, err
 		}
 		c.jwt = jwt
+		c.jwtExpiry = expiry
 		
 		// Retry the request with new JWT
 		req.Header.Del("Cookie")
@@ -260,6 +298,11 @@ func convertTermixHost(th TermixHost) models.Host {
 // GetJWT returns the current JWT token
 func (c *Client) GetJWT() string {
 	return c.jwt
+}
+
+// GetJWTExpiry returns the JWT expiry timestamp
+func (c *Client) GetJWTExpiry() int64 {
+	return c.jwtExpiry
 }
 
 // logDebug logs debug information to a file for troubleshooting

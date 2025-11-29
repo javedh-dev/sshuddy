@@ -117,13 +117,16 @@ Electric cyan for a futuristic cyberpunk aesthetic.
 
 ## Configuration
 
-SSH Buddy stores its configuration in:
+SSH Buddy stores its configuration in a single unified file:
 - **Linux/Unix**: `~/.config/sshbuddy/config.json`
 - **Respects XDG_CONFIG_HOME**: If set, uses `$XDG_CONFIG_HOME/sshbuddy/config.json`
 
 The config file is automatically created on first run and includes:
 - Host configurations (alias, hostname, user, port, tags, identity file, proxy jump)
 - Theme preference
+- Source settings (enable/disable SSHBuddy, SSH Config, Termix)
+- Termix API configuration
+- SSH config path settings
 - All settings are validated on load
 
 ### SSH Config Integration
@@ -144,48 +147,21 @@ Manual hosts take precedence over SSH config hosts with the same alias.
 
 SSH Buddy can fetch hosts from a Termix API endpoint! To enable:
 
-1. Create `~/.config/sshbuddy/termix.json`:
-   ```json
-   {
-     "enabled": true,
-     "baseUrl": "https://your-termix-api.com/api",
-     "username": "your-username",
-     "password": "your-password"
-   }
-   ```
+1. Press `s` in the app to open settings
+2. Enable Termix and configure the base URL
+3. On first connection, you'll be prompted for credentials
+4. Your JWT token is cached securely (credentials are never stored)
 
-2. The API should return a JSON array of hosts from the `/hosts` endpoint:
-   ```json
-   [
-     {
-       "id": 1,
-       "name": "Server Name",
-       "ip": "10.10.1.1",
-       "port": 22,
-       "username": "root",
-       "folder": "category",
-       "tags": ["tag1", "tag2"],
-       "authType": "key",
-       "enableTerminal": true
-     }
-   ]
-   ```
+**Authentication flow:**
+- When the JWT token expires, you'll be prompted to re-authenticate
+- Credentials are only requested when needed and never persisted
+- The JWT token and expiry are stored in the config for automatic re-use
 
-3. Authentication flow:
-   - SSH Buddy will authenticate via `POST /auth/login` with username/password
-   - The JWT token is returned as a cookie and cached for future requests
-   - Automatic re-authentication if the token expires
+**API Requirements:**
+- Authentication endpoint: `POST /users/login` (returns JWT as cookie)
+- Hosts endpoint: `GET /ssh/db/host` (returns array of host objects)
 
-4. Termix hosts are automatically loaded on startup and marked with source `termix`
-5. Manual and SSH config hosts take precedence over Termix hosts with the same alias
-6. If the API is unreachable, SSH Buddy will continue to work with local hosts
-
-**Configuration options:**
-- `enabled`: Set to `true` to enable Termix integration
-- `baseUrl`: Base URL to your Termix API (e.g., `https://api.example.com/api`)
-- `username`: Your Termix username for authentication
-- `password`: Your Termix password for authentication
-- `jwt`: (Auto-managed) Cached JWT token - automatically updated after authentication
+Termix hosts are automatically loaded on startup and marked with source `termix`. Manual and SSH config hosts take precedence over Termix hosts with the same alias.
 
 ### Example Config
 
@@ -209,7 +185,22 @@ SSH Buddy can fetch hosts from a Termix API endpoint! To enable:
       "tags": ["development"]
     }
   ],
-  "theme": "purple"
+  "theme": "purple",
+  "sources": {
+    "sshbuddyEnabled": true,
+    "sshConfigEnabled": true,
+    "termixEnabled": false
+  },
+  "termix": {
+    "enabled": false,
+    "baseUrl": "https://your-termix-server.com/api",
+    "jwt": "",
+    "jwtExpiry": 0
+  },
+  "ssh": {
+    "enabled": true,
+    "configPath": ""
+  }
 }
 ```
 

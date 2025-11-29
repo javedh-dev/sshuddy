@@ -18,8 +18,29 @@ type Host struct {
 }
 
 type Config struct {
-	Hosts []Host `json:"hosts"`
-	Theme string `json:"theme,omitempty"`
+	Hosts   []Host        `json:"hosts"`
+	Theme   string        `json:"theme,omitempty"`
+	Sources SourcesConfig `json:"sources"`
+	Termix  TermixConfig  `json:"termix"`
+	SSH     SSHConfig     `json:"ssh"`
+}
+
+type SourcesConfig struct {
+	SSHBuddyEnabled  bool `json:"sshbuddyEnabled"`
+	SSHConfigEnabled bool `json:"sshConfigEnabled"`
+	TermixEnabled    bool `json:"termixEnabled"`
+}
+
+type TermixConfig struct {
+	Enabled   bool   `json:"enabled"`
+	BaseURL   string `json:"baseUrl,omitempty"`
+	JWT       string `json:"jwt,omitempty"`
+	JWTExpiry int64  `json:"jwtExpiry,omitempty"`
+}
+
+type SSHConfig struct {
+	Enabled    bool   `json:"enabled"`
+	ConfigPath string `json:"configPath,omitempty"`
 }
 
 // ValidationError represents a config validation error
