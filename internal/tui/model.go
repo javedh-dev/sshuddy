@@ -81,12 +81,22 @@ type Model struct {
 
 func NewModel() Model {
 	cfg, err := config.LoadConfig()
-	if err != nil || cfg == nil {
-		cfg = &models.Config{Hosts: []models.Host{}}
-	}
+	var validationErrors []models.ValidationError
 	
-	// Validate config
-	validationErrors := cfg.Validate()
+	if err != nil {
+		// Convert error to validation error for display
+		validationErrors = []models.ValidationError{
+			{
+				Field:   "Config",
+				Message: err.Error(),
+				Index:   -1,
+			},
+		}
+		cfg = &models.Config{Hosts: []models.Host{}}
+	} else {
+		// Validate config
+		validationErrors = cfg.Validate()
+	}
 	
 	// Apply saved theme or default to purple
 	themeName := cfg.Theme
@@ -635,8 +645,8 @@ func (m *Model) renderTwoColumnList() string {
 				hostInfo = hostInfo[:25] + "..."
 			}
 			
-			// Tags line - render with colors
-			tagsLine := renderTags(itm.host.Tags, columnWidth-2, isSelected)
+			// Source line - render with colors
+			sourceLine := renderSource(itm.host.Source, columnWidth-2, isSelected)
 			
 			var titleLine, descLine string
 			if isSelected {
@@ -660,13 +670,13 @@ func (m *Model) renderTwoColumnList() string {
 					Width(columnWidth - 2). // Subtract border + padding
 					Render(hostInfo)
 				
-				tagsLine = lipgloss.NewStyle().
+				sourceLine = lipgloss.NewStyle().
 					BorderLeft(true).
 					BorderStyle(lipgloss.NormalBorder()).
 					BorderForeground(primaryColor).
 					Padding(0, 0, 0, 1).
 					Width(columnWidth - 2).
-					Render(tagsLine)
+					Render(sourceLine)
 			} else {
 				// Normal item without border - use full width with padding
 				titleLine = lipgloss.NewStyle().
@@ -681,18 +691,18 @@ func (m *Model) renderTwoColumnList() string {
 					Width(columnWidth - 2). // Subtract padding
 					Render(hostInfo)
 				
-				tagsLine = lipgloss.NewStyle().
+				sourceLine = lipgloss.NewStyle().
 					Padding(0, 0, 0, 2).
 					Width(columnWidth - 2).
-					Render(tagsLine)
+					Render(sourceLine)
 			}
 			
 			// Wrap in a fixed-width container to prevent shifting
 			titleLine = lipgloss.NewStyle().Width(columnWidth).Render(titleLine)
 			descLine = lipgloss.NewStyle().Width(columnWidth).Render(descLine)
-			tagsLine = lipgloss.NewStyle().Width(columnWidth).Render(tagsLine)
+			sourceLine = lipgloss.NewStyle().Width(columnWidth).Render(sourceLine)
 			
-			return lipgloss.JoinVertical(lipgloss.Left, titleLine, descLine, tagsLine)
+			return lipgloss.JoinVertical(lipgloss.Left, titleLine, descLine, sourceLine)
 		}
 		
 		return lipgloss.NewStyle().Width(columnWidth).Height(itemHeight).Render("")
@@ -745,34 +755,29 @@ func (m Model) GetSelectedHost() *models.Host {
 	return m.selectedHost
 }
 
-// renderTags renders tags with muted color (same as ping time)
-func renderTags(tags []string, maxWidth int, isSelected bool) string {
-	if len(tags) == 0 {
-		return ""
+// renderSource renders the source label with muted color
+func renderSource(source string, maxWidth int, isSelected bool) string {
+	if source == "" {
+		source = "sshbuddy"
 	}
 	
-	var renderedTags []string
-	currentWidth := 0
+	// Map source names to display names
+	displayName := source
+	switch source {
+	case "manual":
+		displayName = "sshbuddy"
+	case "ssh-config":
+		displayName = "config"
+	case "termix":
+		displayName = "termix"
+	}
 	
-	// Use dimColor for all tags (same as ping time)
-	tagStyle := lipgloss.NewStyle().
+	// Use dimColor for source (same as ping time)
+	sourceStyle := lipgloss.NewStyle().
 		Foreground(dimColor).
 		Bold(false)
 	
-	for _, tag := range tags {
-		renderedTag := tagStyle.Render("#" + tag)
-		tagLen := len(tag) + 2 // +2 for "# " and space
-		
-		// Check if adding this tag would exceed max width
-		if currentWidth+tagLen > maxWidth {
-			break
-		}
-		
-		renderedTags = append(renderedTags, renderedTag)
-		currentWidth += tagLen
-	}
-	
-	return strings.Join(renderedTags, " ")
+	return sourceStyle.Render("source: " + displayName)
 }
 
 // renderDeleteConfirmation renders the delete confirmation dialog
@@ -846,11 +851,24 @@ func (m Model) renderConfigError() string {
 		Bold(true).
 		Render("⚠ Configuration Errors")
 	
-	// Error count
+	// Error count - determine source of error
+	errorSource := "configuration"
+	if len(m.configErrors) > 0 {
+		// Check if error is from termix by looking at the error message
+		firstError := m.configErrors[0].Error()
+		if strings.Contains(firstError, "termix") {
+			errorSource = "Termix"
+		} else if strings.Contains(firstError, "Config:") {
+			errorSource = "configuration"
+		} else {
+			errorSource = "sshbuddy.json"
+		}
+	}
+	
 	errorCount := lipgloss.NewStyle().
 		Foreground(mutedColor).
 		MarginTop(1).
-		Render(fmt.Sprintf("Found %d error(s) in sshbuddy.json:", len(m.configErrors)))
+		Render(fmt.Sprintf("Found %d error(s) in %s:", len(m.configErrors), errorSource))
 	
 	// List errors (limit to first 10)
 	var errorLines []string

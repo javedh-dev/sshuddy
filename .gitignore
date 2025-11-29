@@ -21,6 +21,7 @@ dist/
 
 # Config files (user-specific)
 sshbuddy.json
+termix.json
 
 # IDE
 .vscode/

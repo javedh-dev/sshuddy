@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "baseUrl": "https://your-termix-server.com/api",
+  "username": "your-username",
+  "password": "your-password",
+  "jwt": ""
+}
