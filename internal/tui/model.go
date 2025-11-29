@@ -18,6 +18,7 @@ const (
 	stateForm
 	stateConfirmDelete
 	stateConfigError
+	stateConfig
 )
 
 type item struct {
@@ -65,6 +66,7 @@ func (i item) FilterValue() string { return i.host.Alias + i.host.Hostname }
 type Model struct {
 	list              list.Model
 	form              FormModel
+	configView        ConfigViewModel
 	state             sessionState
 	config            *models.Config
 	pingStatus        map[string]bool          // track ping status for each host
@@ -148,6 +150,7 @@ func NewModel() Model {
 	m := Model{
 		list:         l,
 		form:         NewFormModel(),
+		configView:   NewConfigViewModel(),
 		state:        stateList,
 		config:       cfg,
 		pingStatus:   make(map[string]bool),
@@ -192,6 +195,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Only process shortcuts when NOT in search mode
 			if !isSearching {
 				switch msg.String() {
+				case "s":
+					// Open settings/configuration
+					m.state = stateConfig
+					m.configView = NewConfigViewModel()
+					m.configView.width = m.width
+					m.configView.height = m.height
+					return m, m.configView.Init()
 				case "t":
 					// Cycle through themes
 					themeNames := GetThemeNames()
@@ -223,6 +233,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "n":
 					m.state = stateForm
 					m.form = NewFormModel() // Reset form
+					m.form.width = m.width
+					m.form.height = m.height
 					m.editingIndex = -1     // -1 means adding new
 					return m, m.form.Init()
 				case "p":
@@ -241,14 +253,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return ConnectMsg{Host: selectedItem.host}
 						}
 					}
-				case "left":
+				case "up", "k":
+					// Move up in 2-column layout (go back 2 items)
+					currentIdx := m.list.Index()
+					if currentIdx >= 2 {
+						m.list.Select(currentIdx - 2)
+					}
+					return m, nil
+				case "down", "j":
+					// Move down in 2-column layout (go forward 2 items)
+					currentIdx := m.list.Index()
+					totalItems := len(m.list.Items())
+					if currentIdx+2 < totalItems {
+						m.list.Select(currentIdx + 2)
+					}
+					return m, nil
+				case "left", "h":
 					// Move left in row-wise layout (decrement by 1 if on odd index)
 					currentIdx := m.list.Index()
 					if currentIdx%2 == 1 { // If on right column
 						m.list.Select(currentIdx - 1)
 					}
 					return m, nil
-				case "right":
+				case "right", "l":
 					// Move right in row-wise layout (increment by 1 if on even index)
 					currentIdx := m.list.Index()
 					totalItems := len(m.list.Items())
@@ -257,14 +284,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 				case "e":
-					// Edit selected host (only if not from SSH config)
+					// Edit selected host (only if from manual/sshbuddy source)
 					if selectedItem, ok := m.list.SelectedItem().(item); ok {
-						if selectedItem.host.Source == "ssh-config" {
-							// Cannot edit SSH config hosts
+						if selectedItem.host.Source == "ssh-config" || selectedItem.host.Source == "termix" {
+							// Cannot edit SSH config or Termix hosts
 							return m, nil
 						}
 						m.state = stateForm
 						m.form = NewFormModelWithHost(selectedItem.host)
+						m.form.width = m.width
+						m.form.height = m.height
 						m.editingIndex = m.list.Index()
 						return m, m.form.Init()
 					}
@@ -276,14 +305,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Append " (copy)" to the alias to avoid duplicates
 						duplicatedHost.Alias = duplicatedHost.Alias + " (copy)"
 						m.form = NewFormModelWithHost(duplicatedHost)
+						m.form.width = m.width
+						m.form.height = m.height
 						m.editingIndex = -1 // -1 means adding new (not editing)
 						return m, m.form.Init()
 					}
 				case "d", "delete":
-					// Show delete confirmation (only if not from SSH config)
+					// Show delete confirmation (only if from manual/sshbuddy source)
 					if selectedItem, ok := m.list.SelectedItem().(item); ok {
-						if selectedItem.host.Source == "ssh-config" {
-							// Cannot delete SSH config hosts
+						if selectedItem.host.Source == "ssh-config" || selectedItem.host.Source == "termix" {
+							// Cannot delete SSH config or Termix hosts
 							return m, nil
 						}
 						currentIdx := m.list.Index()
@@ -297,7 +328,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		} else if m.state == stateForm {
-			if msg.String() == "esc" {
+			if msg.String() == "esc" || msg.String() == "q" {
+				m.state = stateList
+				return m, nil
+			}
+		} else if m.state == stateConfig {
+			if msg.String() == "esc" || msg.String() == "q" {
+				// Reload config in case it was changed
+				cfg, err := config.LoadConfig()
+				if err == nil {
+					m.config = cfg
+					m.refreshList()
+				}
 				m.state = stateList
 				return m, nil
 			}
@@ -347,6 +389,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		listWidth := boxWidth - 8 // Account for padding and borders
 		listHeight := 20 // Height for scrollable list
 		m.list.SetSize(listWidth, listHeight)
+		
+		// Update config view size
+		m.configView.width = msg.Width
+		m.configView.height = msg.Height
+		
+		// Update form size
+		m.form.width = msg.Width
+		m.form.height = msg.Height
 
 	case PingResultMsg:
 		// Update ping status, time, and clear pinging state
@@ -383,6 +433,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else if m.state == stateForm {
 		m.form, cmd = m.form.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.state == stateConfig {
+		m.configView, cmd = m.configView.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 	// No update needed for stateConfirmDelete
@@ -423,16 +476,13 @@ func (m Model) View() string {
 	}
 	
 	if m.state == stateForm {
-		// Form view with centered box
-		formView := m.form.View()
-		boxed := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(primaryColor).
-			Padding(2, 4).
-			Align(lipgloss.Center).
-			Render(formView)
-		
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, boxed)
+		// Form view (handles its own styling and centering)
+		return m.form.View()
+	}
+	
+	if m.state == stateConfig {
+		// Configuration view
+		return m.configView.View()
 	}
 	
 	if m.state == stateConfirmDelete {
@@ -479,6 +529,7 @@ func (m Model) View() string {
 		keyStyle.Render("c") + descStyle.Render(":copy "),
 		keyStyle.Render("d") + descStyle.Render(":del "),
 		keyStyle.Render("p") + descStyle.Render(":ping "),
+		keyStyle.Render("s") + descStyle.Render(":settings "),
 		keyStyle.Render("t") + descStyle.Render(":theme "),
 		keyStyle.Render("/") + descStyle.Render(":search "),
 		keyStyle.Render("q") + descStyle.Render(":quit"),

@@ -7,7 +7,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
+
+// Lipgloss helper functions (no aliases needed, use lipgloss directly)
 
 type FormModel struct {
 	inputs         []textinput.Model
@@ -16,6 +19,8 @@ type FormModel struct {
 	host           *models.Host              // If editing, this is the host being edited
 	isEditing      bool                     // True if editing existing host
 	validationErrs []models.ValidationError  // Validation errors for current input
+	width          int
+	height         int
 }
 
 func NewFormModel() FormModel {
@@ -91,6 +96,9 @@ func (m FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 	var cmds []tea.Cmd = make([]tea.Cmd, len(m.inputs))
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyTab, tea.KeyDown, tea.KeyEnter:
@@ -115,6 +123,21 @@ func (m FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			if m.focused < 0 {
 				m.focused = len(m.inputs) - 1
 			}
+		case tea.KeyRight:
+			// Move to corresponding field in right column (add 4 if in left column)
+			if m.focused < 4 {
+				// In left column, move to right column
+				newFocus := m.focused + 4
+				if newFocus < len(m.inputs) {
+					m.focused = newFocus
+				}
+			}
+		case tea.KeyLeft:
+			// Move to corresponding field in left column (subtract 4 if in right column)
+			if m.focused >= 4 {
+				// In right column, move to left column
+				m.focused = m.focused - 4
+			}
 		}
 	}
 
@@ -130,17 +153,38 @@ func (m FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 }
 
 func (m FormModel) View() string {
-	var b strings.Builder
+	const boxWidth = 80
 	
-	// Clean title - show different text for edit vs add
-	title := "Add New Host"
+	// ASCII art header (same as main screen)
+	asciiArt := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		Width(boxWidth - 4).
+		Align(lipgloss.Center).
+		Render(`╔═╗┌─┐┬ ┬  ╔╗ ┬ ┬┌┬┐┌┬┐┬ ┬
+╚═╗└─┐├─┤  ╠╩╗│ │ ││ ││└┬┘
+╚═╝└─┘┴ ┴  ╚═╝└─┘─┴┘─┴┘ ┴`)
+	
+	// Subheading - show different text for edit vs add
+	subheadingText := "Add New Host"
 	if m.isEditing {
-		title = "Edit Host"
+		subheadingText = "Edit Host"
 	}
-	b.WriteString(titleStyle.Render(title))
-	b.WriteString("\n\n")
+	subheading := lipgloss.NewStyle().
+		Foreground(dimColor).
+		Width(boxWidth - 4).
+		Align(lipgloss.Center).
+		Render(subheadingText)
 	
-	// Minimal input fields
+	separator := lipgloss.NewStyle().
+		Foreground(dimColor).
+		Width(boxWidth - 4).
+		Align(lipgloss.Center).
+		Render(strings.Repeat("─", boxWidth-4))
+	
+	header := lipgloss.JoinVertical(lipgloss.Left, asciiArt, subheading, separator)
+	
+	// Form fields - 2-column layout
 	fields := []struct {
 		label string
 		input textinput.Model
@@ -154,40 +198,118 @@ func (m FormModel) View() string {
 		{"Tags", m.inputs[6]},
 	}
 	
-	for i, field := range fields {
-		// Label
-		var labelText string
-		if i == m.focused {
-			labelText = labelFocusedStyle.Render(field.label)
-		} else {
-			labelText = labelStyle.Render(field.label)
-		}
+	// Render each field
+	renderField := func(i int, field struct {
+		label string
+		input textinput.Model
+	}) string {
+		isFocused := i == m.focused
 		
-		b.WriteString(labelText)
-		b.WriteString("  ")
-		b.WriteString(field.input.View())
-		b.WriteString("\n")
+		// Label
+		labelStyle := lipgloss.NewStyle().Foreground(textColor).Bold(true)
+		if isFocused {
+			labelStyle = labelStyle.Foreground(primaryColor)
+		}
+		labelText := labelStyle.Render(field.label + ":")
+		
+		// Input
+		inputView := field.input.View()
+		
+		return lipgloss.JoinVertical(lipgloss.Left,
+			labelText,
+			inputView,
+		)
 	}
+	
+	// Split into two columns (first 4 fields in left, last 3 in right)
+	const columnWidth = 35
+	
+	var leftColumn []string
+	var rightColumn []string
+	
+	// Left column: Alias, Hostname, User, Port
+	for i := 0; i < 4 && i < len(fields); i++ {
+		fieldView := renderField(i, fields[i])
+		leftColumn = append(leftColumn, lipgloss.NewStyle().Width(columnWidth).Render(fieldView))
+		leftColumn = append(leftColumn, "") // spacing
+	}
+	
+	// Right column: Identity File, Proxy Jump, Tags
+	for i := 4; i < len(fields); i++ {
+		fieldView := renderField(i, fields[i])
+		rightColumn = append(rightColumn, lipgloss.NewStyle().Width(columnWidth).Render(fieldView))
+		rightColumn = append(rightColumn, "") // spacing
+	}
+	
+	// Pad right column to match left column height
+	for len(rightColumn) < len(leftColumn) {
+		rightColumn = append(rightColumn, "")
+	}
+	
+	// Join columns side by side
+	leftContent := lipgloss.JoinVertical(lipgloss.Left, leftColumn...)
+	rightContent := lipgloss.JoinVertical(lipgloss.Left, rightColumn...)
+	
+	formContent := lipgloss.JoinHorizontal(lipgloss.Top, leftContent, rightContent)
 	
 	// Show validation errors if any
+	var errorMsg string
 	if len(m.validationErrs) > 0 {
-		b.WriteString("\n")
-		errorStyle := labelStyle.Foreground(errorColor)
+		var errorLines []string
 		for _, err := range m.validationErrs {
-			b.WriteString(errorStyle.Render(fmt.Sprintf("⚠ %s", err.Message)))
-			b.WriteString("\n")
+			errorLines = append(errorLines, fmt.Sprintf("• %s", err.Message))
 		}
+		errorMsg = lipgloss.NewStyle().
+			Foreground(errorColor).
+			Render("✗ " + strings.Join(errorLines, "\n  "))
 	}
 	
-	// Clean help text
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(
-		keyStyle.Render("↑/↓") + descStyle.Render(" navigate  ") +
-		keyStyle.Render("enter") + descStyle.Render(" submit  ") +
-		keyStyle.Render("esc") + descStyle.Render(" cancel"),
-	))
+	// Footer
+	keyBindings := []string{
+		keyStyle.Render("↑↓/tab") + descStyle.Render(":navigate "),
+		keyStyle.Render("←→") + descStyle.Render(":columns "),
+		keyStyle.Render("enter") + descStyle.Render(":save "),
+		keyStyle.Render("esc/q") + descStyle.Render(":cancel"),
+	}
+	footer := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(borderColor).
+		Width(boxWidth - 4).
+		Padding(0, 0).
+		Render(lipgloss.JoinHorizontal(lipgloss.Left, keyBindings...))
 	
-	return b.String()
+	// Combine all elements
+	var content string
+	if errorMsg != "" {
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			"",
+			formContent,
+			"",
+			errorMsg,
+			"",
+			footer,
+		)
+	} else {
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			"",
+			formContent,
+			"",
+			footer,
+		)
+	}
+	
+	// Wrap in a fixed-width box - match main app styling
+	mainBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Width(boxWidth).
+		Padding(0, 2).
+		Render(content)
+	
+	// Center the box
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, mainBox)
 }
 
 func (m FormModel) GetHost() models.Host {

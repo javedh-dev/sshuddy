@@ -17,73 +17,73 @@ type Theme struct {
 	PingingWarn lipgloss.Color
 }
 
-// Available themes
+// Available themes - optimized for both light and dark backgrounds
 var themes = map[string]Theme{
 	"purple": {
 		Name:        "Purple Dream",
-		Primary:     lipgloss.Color("#A78BFA"),
-		Accent:      lipgloss.Color("#34D399"),
-		Error:       lipgloss.Color("#F87171"),
-		Text:        lipgloss.Color("#E5E7EB"),
-		Muted:       lipgloss.Color("#9CA3AF"),
-		Dim:         lipgloss.Color("#6B7280"),
-		Border:      lipgloss.Color("#374151"),
-		PingingWarn: lipgloss.Color("#FBBF24"),
+		Primary:     lipgloss.Color("#7C3AED"), // Darker, more saturated purple
+		Accent:      lipgloss.Color("#059669"), // Darker green
+		Error:       lipgloss.Color("#DC2626"), // Darker red
+		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
+		Muted:       lipgloss.Color("#6B7280"), // Medium gray
+		Dim:         lipgloss.Color("#9CA3AF"), // Light gray
+		Border:      lipgloss.Color("#7C3AED"), // Match primary
+		PingingWarn: lipgloss.Color("#D97706"), // Darker amber
 	},
 	"blue": {
 		Name:        "Ocean Blue",
-		Primary:     lipgloss.Color("#60A5FA"),
-		Accent:      lipgloss.Color("#34D399"),
-		Error:       lipgloss.Color("#F87171"),
-		Text:        lipgloss.Color("#E5E7EB"),
-		Muted:       lipgloss.Color("#9CA3AF"),
-		Dim:         lipgloss.Color("#6B7280"),
-		Border:      lipgloss.Color("#1E3A8A"),
-		PingingWarn: lipgloss.Color("#FBBF24"),
+		Primary:     lipgloss.Color("#2563EB"), // Darker, more saturated blue
+		Accent:      lipgloss.Color("#059669"), // Darker green
+		Error:       lipgloss.Color("#DC2626"), // Darker red
+		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
+		Muted:       lipgloss.Color("#6B7280"), // Medium gray
+		Dim:         lipgloss.Color("#9CA3AF"), // Light gray
+		Border:      lipgloss.Color("#2563EB"), // Match primary
+		PingingWarn: lipgloss.Color("#D97706"), // Darker amber
 	},
 	"green": {
 		Name:        "Matrix Green",
-		Primary:     lipgloss.Color("#10B981"),
-		Accent:      lipgloss.Color("#34D399"),
-		Error:       lipgloss.Color("#F87171"),
-		Text:        lipgloss.Color("#D1FAE5"),
-		Muted:       lipgloss.Color("#6EE7B7"),
-		Dim:         lipgloss.Color("#059669"),
-		Border:      lipgloss.Color("#064E3B"),
-		PingingWarn: lipgloss.Color("#FBBF24"),
+		Primary:     lipgloss.Color("#059669"), // Darker, more saturated green
+		Accent:      lipgloss.Color("#0891B2"), // Darker cyan
+		Error:       lipgloss.Color("#DC2626"), // Darker red
+		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
+		Muted:       lipgloss.Color("#6B7280"), // Medium gray
+		Dim:         lipgloss.Color("#9CA3AF"), // Light gray
+		Border:      lipgloss.Color("#059669"), // Match primary
+		PingingWarn: lipgloss.Color("#D97706"), // Darker amber
 	},
 	"pink": {
 		Name:        "Bubblegum Pink",
-		Primary:     lipgloss.Color("#F472B6"),
-		Accent:      lipgloss.Color("#A78BFA"),
-		Error:       lipgloss.Color("#F87171"),
-		Text:        lipgloss.Color("#FCE7F3"),
-		Muted:       lipgloss.Color("#F9A8D4"),
-		Dim:         lipgloss.Color("#DB2777"),
-		Border:      lipgloss.Color("#831843"),
-		PingingWarn: lipgloss.Color("#FBBF24"),
+		Primary:     lipgloss.Color("#DB2777"), // Darker, more saturated pink
+		Accent:      lipgloss.Color("#7C3AED"), // Darker purple
+		Error:       lipgloss.Color("#DC2626"), // Darker red
+		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
+		Muted:       lipgloss.Color("#6B7280"), // Medium gray
+		Dim:         lipgloss.Color("#9CA3AF"), // Light gray
+		Border:      lipgloss.Color("#DB2777"), // Match primary
+		PingingWarn: lipgloss.Color("#D97706"), // Darker amber
 	},
 	"amber": {
 		Name:        "Sunset Amber",
-		Primary:     lipgloss.Color("#F59E0B"),
-		Accent:      lipgloss.Color("#10B981"),
-		Error:       lipgloss.Color("#EF4444"),
-		Text:        lipgloss.Color("#FEF3C7"),
-		Muted:       lipgloss.Color("#FCD34D"),
-		Dim:         lipgloss.Color("#D97706"),
-		Border:      lipgloss.Color("#78350F"),
-		PingingWarn: lipgloss.Color("#FBBF24"),
+		Primary:     lipgloss.Color("#D97706"), // Darker, more saturated amber
+		Accent:      lipgloss.Color("#059669"), // Darker green
+		Error:       lipgloss.Color("#DC2626"), // Darker red
+		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
+		Muted:       lipgloss.Color("#6B7280"), // Medium gray
+		Dim:         lipgloss.Color("#9CA3AF"), // Light gray
+		Border:      lipgloss.Color("#D97706"), // Match primary
+		PingingWarn: lipgloss.Color("#D97706"), // Match primary
 	},
 	"cyan": {
 		Name:        "Cyber Cyan",
-		Primary:     lipgloss.Color("#06B6D4"),
-		Accent:      lipgloss.Color("#A78BFA"),
-		Error:       lipgloss.Color("#F87171"),
-		Text:        lipgloss.Color("#CFFAFE"),
-		Muted:       lipgloss.Color("#67E8F9"),
-		Dim:         lipgloss.Color("#0891B2"),
-		Border:      lipgloss.Color("#164E63"),
-		PingingWarn: lipgloss.Color("#FBBF24"),
+		Primary:     lipgloss.Color("#0891B2"), // Darker, more saturated cyan
+		Accent:      lipgloss.Color("#7C3AED"), // Darker purple
+		Error:       lipgloss.Color("#DC2626"), // Darker red
+		Text:        lipgloss.Color("#1F2937"), // Dark gray for text
+		Muted:       lipgloss.Color("#6B7280"), // Medium gray
+		Dim:         lipgloss.Color("#9CA3AF"), // Light gray
+		Border:      lipgloss.Color("#0891B2"), // Match primary
+		PingingWarn: lipgloss.Color("#D97706"), // Darker amber
 	},
 }
 
